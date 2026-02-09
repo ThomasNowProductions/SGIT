@@ -1,0 +1,2 @@
+# SGIT
+The SGIT CLI
