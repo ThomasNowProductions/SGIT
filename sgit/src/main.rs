@@ -13,6 +13,11 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
+    if cli.explain {
+        print_explanations();
+        return Ok(());
+    }
+
     match cli.command {
         SgitCommand::Init => run_git(&["init"])?,
         SgitCommand::Stage { targets } => stage_targets(&targets)?,
@@ -124,6 +129,10 @@ fn run() -> Result<()> {
     propagate_version = true
 )]
 struct Cli {
+    /// Show a brief, beginner-friendly explanation of every available command
+    #[arg(long, global = true)]
+    explain: bool,
+
     #[command(subcommand)]
     command: SgitCommand,
 }
@@ -262,4 +271,23 @@ fn run_git(args: &[&str]) -> Result<()> {
     } else {
         bail!("git {} failed with {}", args.join(" "), status);
     }
+}
+
+fn print_explanations() {
+    println!("SGIT simplifies Git for beginners by wrapping each major workflow:");
+    println!();
+    println!("  init    – initialize a Git repository (runs `git init`).");
+    println!("  stage   – add files to the staging area (defaults to the repo root).");
+    println!("  unstage – remove staged files safely (runs `git restore --staged`).");
+    println!("  status  – show what is staged vs unstaged (`--short` uses `git status -sb`).");
+    println!("  log     – view history (`--short` shows compact entries).");
+    println!("  diff    – compare working changes (`--staged` shows what will be committed).");
+    println!("  branch  – list local branches.");
+    println!(
+        "  push    – send commits to your remote (uses Git’s defaults unless you pass `--remote`/`--branch`)."
+    );
+    println!("  pull    – fetch + merge from your remote repository.");
+    println!(
+        "  commit  – make commits; `--all` stages everything, `--unstaged` stages only modified tracked files, `--push` runs `git push`, `--amend` rewrites the last commit, and `--no-verify` skips hooks."
+    );
 }
