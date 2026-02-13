@@ -25,7 +25,10 @@ fn run() -> Result<()> {
     };
 
     match command {
-        SgitCommand::Init => run_git(&["init"])?,
+        SgitCommand::Init => {
+            run_git_silent(&["init"])?;
+            println!("✓ Initialized Git repository");
+        }
         SgitCommand::Stage {
             targets,
             all,
@@ -64,8 +67,9 @@ fn run() -> Result<()> {
         } => run_reset(all, staged, unstaged, tracked, untracked)?,
         SgitCommand::Branch { create } => {
             if let Some(branch_name) = create {
-                run_git(&["branch", &branch_name])?;
-                run_git(&["checkout", &branch_name])?;
+                run_git_silent(&["branch", &branch_name])?;
+                run_git_silent(&["checkout", &branch_name])?;
+                println!("✓ Created and switched to branch '{}'", branch_name);
             } else {
                 run_branch_interactive()?;
             }
@@ -74,6 +78,15 @@ fn run() -> Result<()> {
             if remote.is_none() && branch.is_some() {
                 bail!("cannot specify --branch without --remote");
             }
+
+            print!("→ Pushing");
+            if let Some(ref r) = remote {
+                print!(" to {}", r);
+            }
+            if let Some(ref b) = branch {
+                print!("/{}", b);
+            }
+            println!("...");
 
             let mut args_owned = vec!["push".to_string()];
             if let Some(remote) = remote {
@@ -84,9 +97,19 @@ fn run() -> Result<()> {
             }
 
             let args_refs: Vec<&str> = args_owned.iter().map(String::as_str).collect();
-            run_git(&args_refs)?;
+            run_git_quiet(&args_refs)?;
+            println!("✓ Pushed successfully");
         }
         SgitCommand::Pull { remote, branch } => {
+            print!("→ Pulling");
+            if let Some(ref r) = remote {
+                print!(" from {}", r);
+            }
+            if let Some(ref b) = branch {
+                print!("/{}", b);
+            }
+            println!("...");
+
             let mut args_owned = vec!["pull".to_string()];
             if let Some(remote) = remote {
                 args_owned.push(remote);
@@ -96,7 +119,8 @@ fn run() -> Result<()> {
             }
 
             let args_refs: Vec<&str> = args_owned.iter().map(String::as_str).collect();
-            run_git(&args_refs)?;
+            run_git_quiet(&args_refs)?;
+            println!("✓ Pulled successfully");
         }
         SgitCommand::Sync { remote, branch } => {
             run_sync(remote.as_deref(), branch.as_deref())?;
@@ -167,24 +191,30 @@ fn run() -> Result<()> {
                 bail!("commit message cannot be empty");
             }
 
-            let mut should_stage_untracked = false;
-            if all {
-                run_git(&["add", "-A"])?;
-                should_stage_untracked = true;
-            } else if unstaged {
-                run_git(&["add", "-u"])?;
-            } else if !custom_files.is_empty() {
-                let repo_root = get_repo_root()?;
-                let mut args = vec!["add".to_string()];
-                args.extend(custom_files.iter().map(|s| s.clone()));
-                let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                run_git_in_dir(&args_refs, &repo_root)?;
-            } else if !staged && !unstaged && !all {
-            }
-
             if staged && (all || unstaged) {
                 bail!("cannot combine --staged with --all or --unstaged");
             }
+
+            if all {
+                run_git_silent(&["add", "-A"])?;
+                println!("→ Staged all files");
+            } else if unstaged {
+                run_git_silent(&["add", "-u"])?;
+                println!("→ Staged tracked files");
+            } else if !custom_files.is_empty() {
+                let repo_root = get_repo_root()?;
+                let mut args = vec!["add".to_string()];
+                args.extend(custom_files.iter().cloned());
+                let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+                run_git_in_dir_silent(&args_refs, &repo_root)?;
+                println!("→ Staged {} file(s)", custom_files.len());
+            }
+
+            print!("→ Committing");
+            if amend {
+                print!(" (amend)");
+            }
+            println!("...");
 
             let mut commit_args = vec!["commit"];
             if amend {
@@ -196,15 +226,21 @@ fn run() -> Result<()> {
             commit_args.push("-m");
             commit_args.push(commit_msg.as_str());
 
-            run_git(&commit_args)?;
+            run_git_quiet(&commit_args)?;
+            println!("✓ Commit created");
 
             if push {
-                run_git(&["push"])?;
+                print!("→ Pushing");
+                let branch = get_current_branch().ok();
+                if let Some(b) = branch {
+                    print!(" to {}", b);
+                }
+                println!("...");
+                run_git_quiet(&["push"])?;
+                println!("✓ Pushed successfully");
             }
 
-            if should_stage_untracked {
-                println!("All tracked and untracked files staged, commit complete.");
-            }
+            println!("Done.");
         }
     }
 
@@ -352,8 +388,16 @@ fn stage_targets(targets: &[String], all: bool, tracked: bool) -> Result<()> {
             .interact()?;
 
         match selection {
-            0 => run_git(&["add", "-A"]),
-            1 => run_git(&["add", "-u"]),
+            0 => {
+                run_git_silent(&["add", "-A"])?;
+                println!("✓ Staged all files");
+                Ok(())
+            }
+            1 => {
+                run_git_silent(&["add", "-u"])?;
+                println!("✓ Staged tracked files");
+                Ok(())
+            }
             2 => {
                 let files = get_unstaged_files()?;
                 if files.is_empty() {
@@ -372,18 +416,25 @@ fn stage_targets(targets: &[String], all: bool, tracked: bool) -> Result<()> {
 
                 let repo_root = get_repo_root()?;
                 let mut args = vec!["add".to_string()];
+                let count = selected.len();
                 for idx in selected {
                     args.push(files[idx].clone());
                 }
                 let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                run_git_in_dir(&args_refs, &repo_root)
+                run_git_in_dir_silent(&args_refs, &repo_root)?;
+                println!("✓ Staged {} file(s)", count);
+                Ok(())
             }
             _ => Ok(()),
         }
     } else if all {
-        run_git(&["add", "-A"])
+        run_git_silent(&["add", "-A"])?;
+        println!("✓ Staged all files");
+        Ok(())
     } else if tracked {
-        run_git(&["add", "-u"])
+        run_git_silent(&["add", "-u"])?;
+        println!("✓ Staged tracked files");
+        Ok(())
     } else {
         let target_args: Vec<&str> = if targets.is_empty() {
             vec!["."]
@@ -395,7 +446,9 @@ fn stage_targets(targets: &[String], all: bool, tracked: bool) -> Result<()> {
         args.push("add");
         args.extend(target_args);
 
-        run_git(&args)
+        run_git_silent(&args)?;
+        println!("✓ Staged files");
+        Ok(())
     }
 }
 
@@ -441,7 +494,7 @@ fn get_unstaged_files() -> Result<Vec<String>> {
         .into_iter()
         .filter(|(status, _)| {
             let xy = status.chars().collect::<Vec<_>>();
-            let x = xy.get(0).copied().unwrap_or(' ');
+            let x = xy.first().copied().unwrap_or(' ');
             let y = xy.get(1).copied().unwrap_or(' ');
             x == ' ' && y != ' ' && y != '?'
         })
@@ -477,7 +530,7 @@ fn get_untracked_files() -> Result<Vec<String>> {
         .into_iter()
         .filter(|(status, _)| {
             let xy = status.chars().collect::<Vec<_>>();
-            let x = xy.get(0).copied().unwrap_or(' ');
+            let x = xy.first().copied().unwrap_or(' ');
             let y = xy.get(1).copied().unwrap_or(' ');
             x == '?' && y == '?'
         })
@@ -534,9 +587,9 @@ fn run_reset(
 }
 
 fn reset_all() -> Result<()> {
-    run_git(&["reset", "--hard"])?;
-    run_git(&["clean", "-fd"])?;
-    println!("All files reset.");
+    run_git_silent(&["reset", "--hard"])?;
+    run_git_silent(&["clean", "-fd"])?;
+    println!("✓ All files reset.");
     Ok(())
 }
 
@@ -546,8 +599,8 @@ fn reset_staged() -> Result<()> {
         println!("No staged files to reset.");
         return Ok(());
     }
-    run_git(&["restore", "--staged", "."])?;
-    println!("Staged files reset.");
+    run_git_silent(&["restore", "--staged", "."])?;
+    println!("✓ Staged files reset.");
     Ok(())
 }
 
@@ -557,14 +610,14 @@ fn reset_unstaged() -> Result<()> {
         println!("No unstaged changes to reset.");
         return Ok(());
     }
-    run_git(&["restore", "."])?;
-    println!("Unstaged changes reset.");
+    run_git_silent(&["restore", "."])?;
+    println!("✓ Unstaged changes reset.");
     Ok(())
 }
 
 fn reset_tracked() -> Result<()> {
-    run_git(&["reset", "--hard"])?;
-    println!("Tracked files reset.");
+    run_git_silent(&["reset", "--hard"])?;
+    println!("✓ Tracked files reset.");
     Ok(())
 }
 
@@ -574,8 +627,8 @@ fn reset_untracked() -> Result<()> {
         println!("No untracked files to reset.");
         return Ok(());
     }
-    run_git(&["clean", "-fd"])?;
-    println!("Untracked files removed.");
+    run_git_silent(&["clean", "-fd"])?;
+    println!("✓ Untracked files removed.");
     Ok(())
 }
 
@@ -606,22 +659,22 @@ fn reset_custom() -> Result<()> {
             .map(|(s, _)| s.clone())
             .unwrap_or_default();
         let xy: Vec<char> = status.chars().collect();
-        let x = xy.get(0).copied().unwrap_or(' ');
+        let x = xy.first().copied().unwrap_or(' ');
         let y = xy.get(1).copied().unwrap_or(' ');
 
         if x == '?' && y == '?' {
-            run_git_in_dir(&["clean", "-f", file], &repo_root)?;
+            run_git_in_dir_silent(&["clean", "-f", file], &repo_root)?;
         } else {
             if x != ' ' {
-                run_git_in_dir(&["restore", "--staged", file], &repo_root)?;
+                run_git_in_dir_silent(&["restore", "--staged", file], &repo_root)?;
             }
             if y != ' ' && y != '?' {
-                run_git_in_dir(&["restore", file], &repo_root)?;
+                run_git_in_dir_silent(&["restore", file], &repo_root)?;
             }
         }
     }
 
-    println!("Selected files reset.");
+    println!("✓ Selected files reset.");
     Ok(())
 }
 
@@ -636,7 +689,11 @@ fn restore_stage(targets: &[String], all: bool) -> Result<()> {
             .interact()?;
 
         match selection {
-            0 => run_git(&["restore", "--staged", "."]),
+            0 => {
+                run_git_silent(&["restore", "--staged", "."])?;
+                println!("✓ All files unstaged");
+                Ok(())
+            }
             1 => {
                 let files = get_staged_files()?;
                 if files.is_empty() {
@@ -655,16 +712,21 @@ fn restore_stage(targets: &[String], all: bool) -> Result<()> {
 
                 let repo_root = get_repo_root()?;
                 let mut args = vec!["restore".to_string(), "--staged".to_string()];
+                let count = selected.len();
                 for idx in selected {
                     args.push(files[idx].clone());
                 }
                 let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                run_git_in_dir(&args_refs, &repo_root)
+                run_git_in_dir_silent(&args_refs, &repo_root)?;
+                println!("✓ Unstaged {} file(s)", count);
+                Ok(())
             }
             _ => Ok(()),
         }
     } else if all {
-        run_git(&["restore", "--staged", "."])
+        run_git_silent(&["restore", "--staged", "."])?;
+        println!("✓ All files unstaged");
+        Ok(())
     } else {
         let target_args: Vec<&str> = if targets.is_empty() {
             vec!["."]
@@ -677,7 +739,9 @@ fn restore_stage(targets: &[String], all: bool) -> Result<()> {
         args.push("--staged");
         args.extend(target_args);
 
-        run_git(&args)
+        run_git_silent(&args)?;
+        println!("✓ Files unstaged");
+        Ok(())
     }
 }
 
@@ -694,17 +758,19 @@ fn run_git(args: &[&str]) -> Result<()> {
     }
 }
 
-fn run_git_in_dir(args: &[&str], dir: &str) -> Result<()> {
-    let status = StdCommand::new("git")
+fn run_git_in_dir_silent(args: &[&str], dir: &str) -> Result<()> {
+    let output = StdCommand::new("git")
         .args(args)
         .current_dir(dir)
-        .status()
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
         .with_context(|| format!("running git {} in {}", args.join(" "), dir))?;
 
-    if status.success() {
+    if output.status.success() {
         Ok(())
     } else {
-        bail!("git {} failed with {}", args.join(" "), status);
+        bail!("git {} failed", args.join(" "));
     }
 }
 
@@ -736,7 +802,7 @@ fn run_sync(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
         pull_args
     };
 
-    let pull_result = run_git(&pull_refs);
+    let pull_result = run_git_quiet(&pull_refs);
     let had_conflicts = pull_result.is_err();
     if let Err(e) = pull_result {
         if e.to_string().contains("CONFLICT") || e.to_string().contains("merge conflict") {
@@ -767,7 +833,7 @@ fn run_sync(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
         push_args
     };
 
-    let push_result = run_git(&push_refs);
+    let push_result = run_git_quiet(&push_refs);
     if let Err(e) = push_result {
         eprintln!("✗ Push failed: {}", e);
         if had_conflicts {
@@ -793,6 +859,21 @@ fn run_git_quiet(args: &[&str]) -> Result<()> {
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("git {} failed: {}", args.join(" "), stderr.trim());
+    }
+}
+
+fn run_git_silent(args: &[&str]) -> Result<()> {
+    let output = StdCommand::new("git")
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .with_context(|| format!("running git {}", args.join(" ")))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        bail!("git {} failed", args.join(" "));
     }
 }
 
@@ -852,14 +933,16 @@ fn run_branch_interactive() -> Result<()> {
         }
 
         let normalized_name = branch_name.trim().replace(' ', "-");
-        run_git(&["branch", &normalized_name])?;
-        run_git(&["checkout", &normalized_name])?;
+        run_git_silent(&["branch", &normalized_name])?;
+        run_git_silent(&["checkout", &normalized_name])?;
+        println!("✓ Created and switched to branch '{}'", normalized_name);
     } else {
         let selected_branch = &branches[selection];
         if selected_branch == &current {
             println!("Already on branch '{}'.", selected_branch);
         } else {
-            run_git(&["checkout", selected_branch])?;
+            run_git_silent(&["checkout", selected_branch])?;
+            println!("✓ Switched to branch '{}'", selected_branch);
         }
     }
 
