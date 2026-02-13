@@ -26,7 +26,11 @@ fn run() -> Result<()> {
 
     match command {
         SgitCommand::Init => run_git(&["init"])?,
-        SgitCommand::Stage { targets } => stage_targets(&targets)?,
+        SgitCommand::Stage {
+            targets,
+            all,
+            tracked,
+        } => stage_targets(&targets, all, tracked)?,
         SgitCommand::Unstage { targets } => restore_stage(&targets)?,
         SgitCommand::Status { short } => {
             if short {
@@ -182,10 +186,16 @@ struct Cli {
 enum SgitCommand {
     /// Initialize a new Git repository
     Init,
-    /// Stage files (defaults to `.`)
+    /// Stage files (interactive if no targets/flags provided)
     Stage {
-        #[arg(value_name = "PATH", default_value = ".")]
+        #[arg(value_name = "PATH")]
         targets: Vec<String>,
+        /// Stage all files (tracked + untracked)
+        #[arg(long)]
+        all: bool,
+        /// Stage only tracked files
+        #[arg(long)]
+        tracked: bool,
     },
     /// Unstage files or reset staged changes
     Unstage {
@@ -254,18 +264,86 @@ enum SgitCommand {
     },
 }
 
-fn stage_targets(targets: &[String]) -> Result<()> {
-    let target_args: Vec<&str> = if targets.is_empty() {
-        vec!["."]
+fn stage_targets(targets: &[String], all: bool, tracked: bool) -> Result<()> {
+    let is_interactive = targets.is_empty() && !all && !tracked;
+
+    if is_interactive {
+        let selection = Select::new()
+            .with_prompt("What would you like to stage?")
+            .items(&["All files", "Tracked files only", "Specific files"])
+            .default(0)
+            .interact()?;
+
+        match selection {
+            0 => run_git(&["add", "-A"]),
+            1 => run_git(&["add", "-u"]),
+            2 => {
+                let files = get_unstaged_files()?;
+                if files.is_empty() {
+                    println!("No unstaged files to stage.");
+                    return Ok(());
+                }
+                let selected = dialoguer::MultiSelect::new()
+                    .with_prompt("Select files to stage")
+                    .items(&files)
+                    .interact()?;
+
+                if selected.is_empty() {
+                    println!("No files selected.");
+                    return Ok(());
+                }
+
+                let mut args = vec!["add".to_string()];
+                for idx in selected {
+                    args.push(files[idx].clone());
+                }
+                let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+                run_git(&args_refs)
+            }
+            _ => Ok(()),
+        }
+    } else if all {
+        run_git(&["add", "-A"])
+    } else if tracked {
+        run_git(&["add", "-u"])
     } else {
-        targets.iter().map(String::as_str).collect()
-    };
+        let target_args: Vec<&str> = if targets.is_empty() {
+            vec!["."]
+        } else {
+            targets.iter().map(String::as_str).collect()
+        };
 
-    let mut args = Vec::with_capacity(1 + target_args.len());
-    args.push("add");
-    args.extend(target_args);
+        let mut args = Vec::with_capacity(1 + target_args.len());
+        args.push("add");
+        args.extend(target_args);
 
-    run_git(&args)
+        run_git(&args)
+    }
+}
+
+fn get_unstaged_files() -> Result<Vec<String>> {
+    let output = StdCommand::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .context("running git status --porcelain")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<String> = stdout
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let status = line.chars().next()?;
+            if status == ' ' || status == '?' || status == 'A' {
+                return None;
+            }
+            Some(line[3..].to_string())
+        })
+        .collect();
+
+    Ok(files)
 }
 
 fn restore_stage(targets: &[String]) -> Result<()> {
@@ -300,7 +378,7 @@ fn print_explanations() {
     println!("SGIT simplifies Git for beginners by wrapping each major workflow:");
     println!();
     println!("  init    – initialize a Git repository (runs `git init`).");
-    println!("  stage   – add files to the staging area (defaults to the repo root).");
+    println!("  stage   – add files to the staging area (interactive, or use --all/--tracked).");
     println!("  unstage – remove staged files safely (runs `git restore --staged`).");
     println!("  status  – show what is staged vs unstaged (`--short` uses `git status -sb`).");
     println!("  log     – view history (`--short` shows compact entries).");
