@@ -334,12 +334,13 @@ fn stage_targets(targets: &[String], all: bool, tracked: bool) -> Result<()> {
                     return Ok(());
                 }
 
+                let repo_root = get_repo_root()?;
                 let mut args = vec!["add".to_string()];
                 for idx in selected {
                     args.push(files[idx].clone());
                 }
                 let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                run_git(&args_refs)
+                run_git_in_dir(&args_refs, &repo_root)
             }
             _ => Ok(()),
         }
@@ -362,48 +363,75 @@ fn stage_targets(targets: &[String], all: bool, tracked: bool) -> Result<()> {
     }
 }
 
-fn get_unstaged_files() -> Result<Vec<String>> {
+fn get_repo_root() -> Result<String> {
+    let output = StdCommand::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .context("getting repo root")?;
+
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout);
+        Ok(path.trim().to_string())
+    } else {
+        bail!("failed to get repo root");
+    }
+}
+
+fn get_porcelain_lines() -> Result<Vec<(String, String)>> {
     let output = StdCommand::new("git")
         .args(["status", "--porcelain"])
         .output()
         .context("running git status --porcelain")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let files: Vec<String> = stdout
+    let entries: Vec<(String, String)> = stdout
         .lines()
         .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() {
+            if line.len() < 4 {
                 return None;
             }
-            let status = line.chars().next()?;
-            if status == ' ' || status == '?' || status == 'A' {
-                return None;
-            }
-            Some(line[3..].to_string())
+            let status = line[..2].to_string();
+            let path = line[3..].to_string();
+            Some((status, path))
         })
+        .collect();
+
+    Ok(entries)
+}
+
+fn get_unstaged_files() -> Result<Vec<String>> {
+    let entries = get_porcelain_lines()?;
+    let files: Vec<String> = entries
+        .into_iter()
+        .filter(|(status, _)| {
+            let xy = status.chars().collect::<Vec<_>>();
+            let x = xy.get(0).copied().unwrap_or(' ');
+            let y = xy.get(1).copied().unwrap_or(' ');
+            x == ' ' && y != ' ' && y != '?'
+        })
+        .map(|(_, path)| path)
+        .collect();
+
+    Ok(files)
+}
+
+fn get_staged_files() -> Result<Vec<String>> {
+    let entries = get_porcelain_lines()?;
+    let files: Vec<String> = entries
+        .into_iter()
+        .filter(|(status, _)| {
+            let x = status.chars().next().unwrap_or(' ');
+            matches!(x, 'M' | 'A' | 'D' | 'R' | 'C')
+        })
+        .map(|(_, path)| path)
         .collect();
 
     Ok(files)
 }
 
 fn get_all_uncommitted_files() -> Result<Vec<String>> {
-    let output = StdCommand::new("git")
-        .args(["status", "--porcelain"])
-        .output()
-        .context("running git status --porcelain")?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let files: Vec<String> = stdout
-        .lines()
-        .filter_map(|line| {
-            if line.len() < 4 {
-                return None;
-            }
-            Some(line[3..].to_string())
-        })
-        .collect();
-
+    let entries = get_porcelain_lines()?;
+    let files: Vec<String> = entries.into_iter().map(|(_, path)| path).collect();
     Ok(files)
 }
 
@@ -435,12 +463,13 @@ fn restore_stage(targets: &[String], all: bool) -> Result<()> {
                     return Ok(());
                 }
 
+                let repo_root = get_repo_root()?;
                 let mut args = vec!["restore".to_string(), "--staged".to_string()];
                 for idx in selected {
                     args.push(files[idx].clone());
                 }
                 let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                run_git(&args_refs)
+                run_git_in_dir(&args_refs, &repo_root)
             }
             _ => Ok(()),
         }
@@ -460,31 +489,6 @@ fn restore_stage(targets: &[String], all: bool) -> Result<()> {
 
         run_git(&args)
     }
-}
-
-fn get_staged_files() -> Result<Vec<String>> {
-    let output = StdCommand::new("git")
-        .args(["status", "--porcelain"])
-        .output()
-        .context("running git status --porcelain")?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let files: Vec<String> = stdout
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
-            let status = line.chars().next()?;
-            if status == 'M' || status == 'A' || status == 'D' || status == 'R' || status == 'C' {
-                return Some(line[3..].to_string());
-            }
-            None
-        })
-        .collect();
-
-    Ok(files)
 }
 
 fn run_git(args: &[&str]) -> Result<()> {
@@ -511,20 +515,6 @@ fn run_git_in_dir(args: &[&str], dir: &str) -> Result<()> {
         Ok(())
     } else {
         bail!("git {} failed with {}", args.join(" "), status);
-    }
-}
-
-fn get_repo_root() -> Result<String> {
-    let output = StdCommand::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .context("getting repo root")?;
-
-    if output.status.success() {
-        let path = String::from_utf8_lossy(&output.stdout);
-        Ok(path.trim().to_string())
-    } else {
-        bail!("failed to get repo root");
     }
 }
 
