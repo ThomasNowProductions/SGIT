@@ -84,6 +84,9 @@ fn run() -> Result<()> {
             let args_refs: Vec<&str> = args_owned.iter().map(String::as_str).collect();
             run_git(&args_refs)?;
         }
+        SgitCommand::Sync { remote, branch } => {
+            run_sync(remote.as_deref(), branch.as_deref())?;
+        }
         SgitCommand::Commit {
             message,
             all,
@@ -260,6 +263,13 @@ enum SgitCommand {
     },
     /// Fetch and merge from remote
     Pull {
+        /// Remote name
+        remote: Option<String>,
+        /// Branch name
+        branch: Option<String>,
+    },
+    /// Sync: fetch, pull, and push in one command
+    Sync {
         /// Remote name
         remote: Option<String>,
         /// Branch name
@@ -442,6 +452,94 @@ fn run_git(args: &[&str]) -> Result<()> {
     }
 }
 
+fn run_sync(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
+    let remote_name = remote.unwrap_or("origin");
+
+    println!("→ Fetching from {}...", remote_name);
+    let fetch_result = run_git_quiet(&["fetch", remote_name]);
+    if let Err(e) = fetch_result {
+        eprintln!("⚠ Fetch failed: {}", e);
+        eprintln!("  Continuing with local state...");
+    } else {
+        println!("✓ Fetch complete");
+    }
+
+    println!("→ Pulling changes...");
+    let mut pull_args = vec!["pull"];
+    let mut pull_owned: Vec<String> = Vec::new();
+    if let Some(r) = remote {
+        pull_owned.push(r.to_string());
+        if let Some(b) = branch {
+            pull_owned.push(b.to_string());
+        }
+    }
+    let pull_refs: Vec<&str> = if pull_owned.is_empty() {
+        pull_args
+    } else {
+        pull_args.extend(pull_owned.iter().map(String::as_str));
+        pull_args
+    };
+
+    let pull_result = run_git(&pull_refs);
+    let had_conflicts = pull_result.is_err();
+    if let Err(e) = pull_result {
+        if e.to_string().contains("CONFLICT") || e.to_string().contains("merge conflict") {
+            eprintln!("✗ Pull failed due to merge conflicts");
+            eprintln!("  Please resolve conflicts and run 'sgit push' manually.");
+            return Err(e);
+        } else {
+            eprintln!("⚠ Pull failed: {}", e);
+            eprintln!("  Attempting to push local changes anyway...");
+        }
+    } else {
+        println!("✓ Pull complete");
+    }
+
+    println!("→ Pushing changes...");
+    let mut push_args = vec!["push"];
+    let mut push_owned: Vec<String> = Vec::new();
+    if let Some(r) = remote {
+        push_owned.push(r.to_string());
+        if let Some(b) = branch {
+            push_owned.push(b.to_string());
+        }
+    }
+    let push_refs: Vec<&str> = if push_owned.is_empty() {
+        push_args
+    } else {
+        push_args.extend(push_owned.iter().map(String::as_str));
+        push_args
+    };
+
+    let push_result = run_git(&push_refs);
+    if let Err(e) = push_result {
+        eprintln!("✗ Push failed: {}", e);
+        if had_conflicts {
+            eprintln!("  Resolve conflicts first, then push manually.");
+        } else {
+            eprintln!("  Check your permissions or network connection.");
+        }
+        return Err(e);
+    }
+
+    println!("✓ Sync complete: fetched, pulled, and pushed successfully.");
+    Ok(())
+}
+
+fn run_git_quiet(args: &[&str]) -> Result<()> {
+    let output = StdCommand::new("git")
+        .args(args)
+        .output()
+        .with_context(|| format!("running git {}", args.join(" ")))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git {} failed: {}", args.join(" "), stderr.trim());
+    }
+}
+
 fn print_explanations() {
     println!("SGIT simplifies Git for beginners by wrapping each major workflow:");
     println!();
@@ -453,10 +551,11 @@ fn print_explanations() {
     println!("  diff    – compare working changes (`--staged` shows what will be committed).");
     println!("  branch  – list local branches.");
     println!(
-        "  push    – send commits to your remote (uses Git’s defaults unless you pass `--remote`/`--branch`)."
+        "  push    – send commits to your remote (uses Git's defaults unless you pass `--remote`/`--branch`)."
     );
     println!("  pull    – fetch + merge from your remote repository.");
     println!(
         "  commit  – make commits; `--all` stages everything, `--unstaged` stages only modified tracked files, `--push` runs `git push`, `--amend` rewrites the last commit, and `--no-verify` skips hooks."
     );
+    println!("  sync    – fetch, pull, and push in one command with graceful error handling.");
 }
