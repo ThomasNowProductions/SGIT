@@ -97,7 +97,7 @@ fn run() -> Result<()> {
             no_verify,
         } => {
             let is_interactive = message.is_none() && !all && !staged && !unstaged;
-            let (all, staged, unstaged, commit_msg, push) = if is_interactive {
+            let (all, staged, unstaged, commit_msg, push, custom_files) = if is_interactive {
                 let scope = Select::new()
                     .with_prompt("What would you like to commit?")
                     .items(&[
@@ -116,15 +116,37 @@ fn run() -> Result<()> {
                     _ => (false, false, false),
                 };
 
+                let mut custom_files: Vec<String> = Vec::new();
+                if scope == 3 {
+                    let files = get_all_uncommitted_files()?;
+                    if files.is_empty() {
+                        println!("No files to commit.");
+                        return Ok(());
+                    }
+                    let selected = dialoguer::MultiSelect::new()
+                        .with_prompt("Select files to stage")
+                        .items(&files)
+                        .interact()?;
+
+                    if selected.is_empty() {
+                        println!("No files selected.");
+                        return Ok(());
+                    }
+
+                    for idx in selected {
+                        custom_files.push(files[idx].clone());
+                    }
+                }
+
                 let msg: String = Input::new().with_prompt("Commit message").interact()?;
                 let should_push = Confirm::new()
                     .with_prompt("Push after committing?")
                     .default(false)
                     .interact()?;
-                (all, staged, unstaged, msg, should_push)
+                (all, staged, unstaged, msg, should_push, custom_files)
             } else {
                 let msg = message.unwrap_or_default();
-                (all, staged, unstaged, msg, push)
+                (all, staged, unstaged, msg, push, Vec::new())
             };
 
             if commit_msg.is_empty() {
@@ -137,6 +159,12 @@ fn run() -> Result<()> {
                 should_stage_untracked = true;
             } else if unstaged {
                 run_git(&["add", "-u"])?;
+            } else if !custom_files.is_empty() {
+                let repo_root = get_repo_root()?;
+                let mut args = vec!["add".to_string()];
+                args.extend(custom_files.iter().map(|s| s.clone()));
+                let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+                run_git_in_dir(&args_refs, &repo_root)?;
             } else if !staged && !unstaged && !all {
             }
 
@@ -359,6 +387,26 @@ fn get_unstaged_files() -> Result<Vec<String>> {
     Ok(files)
 }
 
+fn get_all_uncommitted_files() -> Result<Vec<String>> {
+    let output = StdCommand::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .context("running git status --porcelain")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<String> = stdout
+        .lines()
+        .filter_map(|line| {
+            if line.len() < 4 {
+                return None;
+            }
+            Some(line[3..].to_string())
+        })
+        .collect();
+
+    Ok(files)
+}
+
 fn restore_stage(targets: &[String], all: bool) -> Result<()> {
     let is_interactive = targets.is_empty() && !all;
 
@@ -449,6 +497,34 @@ fn run_git(args: &[&str]) -> Result<()> {
         Ok(())
     } else {
         bail!("git {} failed with {}", args.join(" "), status);
+    }
+}
+
+fn run_git_in_dir(args: &[&str], dir: &str) -> Result<()> {
+    let status = StdCommand::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .with_context(|| format!("running git {} in {}", args.join(" "), dir))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        bail!("git {} failed with {}", args.join(" "), status);
+    }
+}
+
+fn get_repo_root() -> Result<String> {
+    let output = StdCommand::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .context("getting repo root")?;
+
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout);
+        Ok(path.trim().to_string())
+    } else {
+        bail!("failed to get repo root");
     }
 }
 
