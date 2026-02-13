@@ -8,7 +8,7 @@ status() {
     printf "\r\033[K%s" "$1"
 }
 
-if [[ ! -e "$TARGET_PATH" ]]; then
+if [ ! -e "$TARGET_PATH" ]; then
     printf "\r\033[KSGIT is not installed at %s\n" "$TARGET_PATH"
     exit 1
 fi

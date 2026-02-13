@@ -18,10 +18,10 @@ status "Cloning SGIT repository..."
 git clone --depth 1 "$REPO_URL" "$TEMP_DIR" 2>/dev/null
 
 status "Building SGIT (this may take a moment)..."
-cargo build --release --manifest-path "$TEMP_DIR/sgit/Cargo.toml" 2>/dev/null >/dev/null
+cargo build --release --manifest-path "$TEMP_DIR/Cargo.toml" 2>/dev/null >/dev/null
 
-TARGET_BIN="$TEMP_DIR/sgit/target/release/sgit"
-if [[ ! -f "$TARGET_BIN" ]]; then
+TARGET_BIN="$TEMP_DIR/target/release/sgit"
+if [ ! -f "$TARGET_BIN" ]; then
     printf "\r\033[KERROR: release binary not found\n"
     exit 1
 fi
