@@ -107,3 +107,13 @@ else
     printf "\r\033[KInstall failed; try setting SGIT_INSTALL_DIR to a writable directory\n"
     exit 1
 fi
+
+case ":$PATH:" in
+    *":$INSTALL_DIR:"*) ;;
+    *)
+        printf "\n⚠️  $INSTALL_DIR is not in your PATH\n"
+        printf "   Add it by running:\n"
+        printf "     echo 'export PATH=\"\$PATH:$INSTALL_DIR\"' >> ~/.bashrc && source ~/.bashrc\n"
+        printf "   (or use ~/.zshrc for zsh)\n"
+        ;;
+esac
