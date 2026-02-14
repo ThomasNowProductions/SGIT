@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-SGIT (Simple Git) is a Rust CLI wrapper around Git that provides simplified workflows for common Git operations. It is a single-binary project with no external tests currently.
+SGIT (Simple Git) is a Rust CLI wrapper around Git that provides simplified workflows for common Git operations. It is a single-binary project with a modular code structure.
 
 ## Build/Lint/Test Commands
 
@@ -19,17 +19,20 @@ cargo run -- <command>
 # Check for compilation errors (faster than build)
 cargo check
 
-# Run all tests (if any are added)
+# Run all tests
 cargo test
 
 # Run a specific test by name
 cargo test <test_name>
 
-# Run a specific test file
+# Run a specific test file (for integration tests)
 cargo test --test <test_file>
 
 # Run tests with output shown
 cargo test -- --nocapture
+
+# Run a single test with pattern matching
+cargo test <pattern>
 
 # Lint with clippy
 cargo clippy
@@ -54,8 +57,10 @@ cargo fmt -- --check
 use std::process::Command as StdCommand;
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
 use dialoguer::{Confirm, Input, Select};
+
+use crate::git::run_git_silent;
+use crate::status::get_repo_root;
 ```
 
 ### Formatting
@@ -74,9 +79,9 @@ use dialoguer::{Confirm, Input, Select};
 
 ### Naming Conventions
 
-- **Functions**: snake_case (`run_git`, `get_staged_files`, `reset_all`)
+- **Functions**: snake_case (`run_git`, `get_staged_files`, `stage_targets`)
 - **Structs/Enums**: PascalCase (`Cli`, `SgitCommand`)
-- **Constants**: SCREAMING_SNAKE_CASE
+- **Constants**: SCREAMING_SNAKE_CASE (`NOT_IN_REPO_HINT`, `NO_STAGED_HINT`)
 - **Variables**: snake_case
 - **Enum variants**: PascalCase (`SgitCommand::Init`, `SgitCommand::Stage`)
 
@@ -84,20 +89,17 @@ use dialoguer::{Confirm, Input, Select};
 
 - Use `anyhow` crate for error handling
 - Use `bail!` macro for early returns with an error message
-- Use `.context()` to add context to operations that may fail
+- Use `.context()` or `.with_context()` to add context to operations that may fail
 
 ```rust
-fn run_git(args: &[&str]) -> Result<()> {
-    let status = StdCommand::new("git")
-        .args(args)
+pub fn check_in_repo() -> Result<()> {
+    StdCommand::new("git")
+        .args(["rev-parse", "--git-dir"])
         .status()
-        .with_context(|| format!("running git {}", args.join(" ")))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        bail!("git {} failed with {}", args.join(" "), status);
-    }
+        .context("failed to execute git - is git installed?")?
+        .success()
+        .then_some(())
+        .ok_or_else(|| anyhow::anyhow!("{}", NOT_IN_REPO_HINT))
 }
 ```
 
@@ -111,12 +113,12 @@ fn run_git(args: &[&str]) -> Result<()> {
 ```rust
 #[derive(Parser)]
 #[command(name = "sgit", about = "Description", version)]
-struct Cli {
+pub struct Cli {
     #[arg(long, global = true)]
-    explain: bool,
+    pub explain: bool,
 
     #[command(subcommand)]
-    command: Option<SgitCommand>,
+    pub command: Option<SgitCommand>,
 }
 ```
 
@@ -131,12 +133,12 @@ struct Cli {
 
 - Use `match` for enum dispatch
 - Handle all variants explicitly
-- Use `_ => {}` for no-op default cases when appropriate
+- Use `_ => Ok(())` for no-op default cases when appropriate
 
 ### Command Execution
 
 - Use `std::process::Command` for running Git commands
-- Check `status.success()` before returning `Ok(())`
+- Check `output.status.success()` before returning `Ok(())`
 - Use `.output()` when you need to capture stdout/stderr
 
 ```rust
@@ -155,19 +157,25 @@ let output = StdCommand::new("git")
 
 ## Architecture Notes
 
-- Single-file architecture (`src/main.rs`) - the project is small enough to not need modules
+- Modular architecture under `src/`:
+  - `main.rs` - Entry point, command dispatch
+  - `cli.rs` - CLI definitions (Cli struct, SgitCommand enum)
+  - `git.rs` - Git command execution helpers (`run_git`, `run_git_silent`, etc.)
+  - `status.rs` - Repository status utilities (`get_staged_files`, `get_branches`, etc.)
+  - `commands/` - Individual command implementations
 - Entry point is `fn main()` which calls `run()` and handles errors
-- All Git operations go through `run_git()` or `run_git_in_dir()` helper functions
+- All Git operations use helpers from `git.rs` module
 - Interactive prompts use the `dialoguer` crate
-- User-facing errors are printed via `eprintln!`
+- User-facing errors are printed via `eprintln!` with error chain
 
 ## Adding New Commands
 
-1. Add a new variant to `SgitCommand` enum with doc comment
+1. Add a new variant to `SgitCommand` enum in `src/cli.rs` with doc comment
 2. Add any required arguments as fields with `#[arg]` attributes
-3. Add a match arm in the main `match command { }` block
-4. Implement the command logic in a dedicated function
-5. Update `print_explanations()` to document the new command
+3. Create a new file in `src/commands/` for the implementation
+4. Export the function from `src/commands/mod.rs`
+5. Add a match arm in `main.rs` to call the new command function
+6. Update `print_explanations()` in `main.rs` to document the new command
 
 ## Dependencies
 
