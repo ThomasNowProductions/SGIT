@@ -48,7 +48,18 @@ fi
 
 if [ "$VERSION" = "latest" ]; then
     status "Fetching latest release..."
-    VERSION="$(curl -sSL "https://api.github.com/repos/$REPO/releases/latest" | grep -m1 '"tag_name"' | sed 's/.*"tag_name": "//; s/".*//')"
+    RELEASE_INFO="$(curl -sSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null)" || RELEASE_INFO=""
+    if [ -z "$RELEASE_INFO" ] || printf '%s' "$RELEASE_INFO" | grep -q 'API rate limit exceeded'; then
+        printf "\r\033[KERROR: Failed to fetch release info from GitHub\n"
+        printf "       (Rate limited? Try: SGIT_VERSION=v0.1.0 ./install.sh)\n"
+        printf "       See all releases: https://github.com/$REPO/releases\n"
+        exit 1
+    fi
+    VERSION="$(printf '%s' "$RELEASE_INFO" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
+    if [ -z "$VERSION" ]; then
+        printf "\r\033[KERROR: No releases found. Visit https://github.com/$REPO/releases\n"
+        exit 1
+    fi
 fi
 
 if [ "$(uname -s)" = "MINGW"* ] || [ "$(uname -s)" = "MSYS"* ] || [ "$(uname -s)" = "CYGWIN"* ]; then
@@ -79,14 +90,18 @@ else
     tar -xzf "$ARCHIVE"
 fi
 
-if [ ! -f "sgit" ] && [ ! -f "sgit.exe" ]; then
+if [ -f "sgit" ]; then
+    BINARY="sgit"
+elif [ -f "sgit.exe" ]; then
+    BINARY="sgit.exe"
+else
     printf "\r\033[KERROR: Binary not found in archive\n"
     exit 1
 fi
 
 status "Installing SGIT to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-if install -Dm755 sgit* "$INSTALL_DIR/sgit" 2>/dev/null; then
+if install -Dm755 "$BINARY" "$INSTALL_DIR/sgit" 2>/dev/null; then
     printf "\r\033[K🎉 SGIT $VERSION is installed 🎉\n"
 else
     printf "\r\033[KInstall failed; try setting SGIT_INSTALL_DIR to a writable directory\n"
