@@ -4,9 +4,14 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use dialoguer::{Confirm, Input, Select};
 
+const NOT_IN_REPO_HINT: &str = "not in a git repository - run 'sgit init' or cd into a repo first";
+const NO_STAGED_HINT: &str = "nothing to commit - use 'sgit stage' to stage changes first";
+
 fn main() {
     if let Err(err) = run() {
-        eprintln!("error: {err}");
+        for cause in err.chain() {
+            eprintln!("error: {}", cause);
+        }
         std::process::exit(1);
     }
 }
@@ -23,6 +28,10 @@ fn run() -> Result<()> {
         Some(command) => command,
         None => bail!("'sgit' requires a subcommand; use --help to see the available list"),
     };
+
+    if !matches!(command, SgitCommand::Init) {
+        check_in_repo()?;
+    }
 
     match command {
         SgitCommand::Init => {
@@ -67,8 +76,15 @@ fn run() -> Result<()> {
         } => run_reset(all, staged, unstaged, tracked, untracked)?,
         SgitCommand::Branch { create } => {
             if let Some(branch_name) = create {
-                run_git_silent(&["branch", &branch_name])?;
-                run_git_silent(&["checkout", &branch_name])?;
+                let branch_name = branch_name.trim();
+                if branch_name.is_empty() {
+                    bail!("branch name cannot be empty");
+                }
+                if branch_name.contains(|c: char| c.is_whitespace()) {
+                    bail!("branch name cannot contain whitespace");
+                }
+                run_git_silent(&["branch", branch_name])?;
+                run_git_silent(&["checkout", branch_name])?;
                 println!("✓ Created and switched to branch '{}'", branch_name);
             } else {
                 run_branch_interactive()?;
@@ -187,12 +203,37 @@ fn run() -> Result<()> {
                 (all, staged, unstaged, msg, push, Vec::new())
             };
 
-            if commit_msg.is_empty() {
+            if commit_msg.trim().is_empty() {
                 bail!("commit message cannot be empty");
             }
 
             if staged && (all || unstaged) {
                 bail!("cannot combine --staged with --all or --unstaged");
+            }
+
+            if amend && !no_verify {
+                let has_pushed = StdCommand::new("git")
+                    .args(["log", "--oneline", "-n", "1"])
+                    .output()
+                    .ok()
+                    .and_then(|o| String::from_utf8(o.stdout).ok())
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false);
+
+                if has_pushed {
+                    eprintln!(
+                        "⚠ Warning: amending a commit that may have been pushed can cause issues."
+                    );
+                    eprintln!("  Use --no-verify to skip this check if you're sure.");
+                    let confirm = Confirm::new()
+                        .with_prompt("Continue with amend?")
+                        .default(false)
+                        .interact()?;
+                    if !confirm {
+                        println!("Aborted.");
+                        return Ok(());
+                    }
+                }
             }
 
             if all {
@@ -456,13 +497,21 @@ fn get_repo_root() -> Result<String> {
     let output = StdCommand::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
-        .context("getting repo root")?;
+        .context("failed to execute git - is git installed?")?;
 
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout);
-        Ok(path.trim().to_string())
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            bail!("{}", NOT_IN_REPO_HINT);
+        }
+        Ok(path)
     } else {
-        bail!("failed to get repo root");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("not a git repository") {
+            bail!("{}", NOT_IN_REPO_HINT);
+        }
+        bail!("failed to get repo root: {}", stderr.trim());
     }
 }
 
@@ -746,15 +795,31 @@ fn restore_stage(targets: &[String], all: bool) -> Result<()> {
 }
 
 fn run_git(args: &[&str]) -> Result<()> {
-    let status = StdCommand::new("git")
+    let output = StdCommand::new("git")
         .args(args)
-        .status()
-        .with_context(|| format!("running git {}", args.join(" ")))?;
+        .output()
+        .with_context(|| {
+            format!(
+                "failed to execute git {} - is git installed?",
+                args.join(" ")
+            )
+        })?;
 
-    if status.success() {
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.is_empty() {
+            print!("{}", stdout);
+        }
         Ok(())
     } else {
-        bail!("git {} failed with {}", args.join(" "), status);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let hint = suggest_hint_for_git_error(&stderr, args);
+        bail!(
+            "git {} failed:{}{}",
+            args.join(" "),
+            format_stderr(&stderr),
+            hint
+        );
     }
 }
 
@@ -763,14 +828,27 @@ fn run_git_in_dir_silent(args: &[&str], dir: &str) -> Result<()> {
         .args(args)
         .current_dir(dir)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .output()
-        .with_context(|| format!("running git {} in {}", args.join(" "), dir))?;
+        .with_context(|| {
+            format!(
+                "failed to execute git {} in {} - is git installed?",
+                args.join(" "),
+                dir
+            )
+        })?;
 
     if output.status.success() {
         Ok(())
     } else {
-        bail!("git {} failed", args.join(" "));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let hint = suggest_hint_for_git_error(&stderr, args);
+        bail!(
+            "git {} failed:{}{}",
+            args.join(" "),
+            format_stderr(&stderr),
+            hint
+        );
     }
 }
 
@@ -780,6 +858,11 @@ fn run_sync(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
     println!("→ Fetching from {}...", remote_name);
     let fetch_result = run_git_quiet(&["fetch", remote_name]);
     if let Err(e) = fetch_result {
+        let err_str = e.to_string();
+        if err_str.contains("could not resolve host") || err_str.contains("network") {
+            eprintln!("✗ Network error: cannot reach '{}'", remote_name);
+            return Err(e);
+        }
         eprintln!("⚠ Fetch failed: {}", e);
         eprintln!("  Continuing with local state...");
     } else {
@@ -803,16 +886,27 @@ fn run_sync(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
     };
 
     let pull_result = run_git_quiet(&pull_refs);
-    let had_conflicts = pull_result.is_err();
     if let Err(e) = pull_result {
-        if e.to_string().contains("CONFLICT") || e.to_string().contains("merge conflict") {
+        let err_str = e.to_string();
+        if err_str.contains("CONFLICT") || err_str.contains("merge conflict") {
             eprintln!("✗ Pull failed due to merge conflicts");
-            eprintln!("  Please resolve conflicts and run 'sgit push' manually.");
+            eprintln!("  Resolve conflicts manually:");
+            eprintln!("    1. Edit conflicting files (marked with <<<<<<<)");
+            eprintln!("    2. Run 'sgit stage .' to stage resolved files");
+            eprintln!("    3. Run 'sgit commit' to complete the merge");
             return Err(e);
-        } else {
-            eprintln!("⚠ Pull failed: {}", e);
-            eprintln!("  Attempting to push local changes anyway...");
         }
+        if err_str.contains("no tracking information") {
+            eprintln!("✗ Branch has no upstream configured");
+            eprintln!(
+                "  Try: git branch --set-upstream-to={}/{}",
+                remote_name,
+                get_current_branch().unwrap_or_default()
+            );
+            return Err(e);
+        }
+        eprintln!("⚠ Pull failed: {}", e);
+        eprintln!("  Attempting to push local changes anyway...");
     } else {
         println!("✓ Pull complete");
     }
@@ -835,11 +929,19 @@ fn run_sync(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
 
     let push_result = run_git_quiet(&push_refs);
     if let Err(e) = push_result {
-        eprintln!("✗ Push failed: {}", e);
-        if had_conflicts {
-            eprintln!("  Resolve conflicts first, then push manually.");
+        let err_str = e.to_string();
+        if err_str.contains("rejected") {
+            eprintln!("✗ Push rejected: remote has new commits");
+            eprintln!("  Run 'sgit pull' first to integrate remote changes.");
+        } else if err_str.contains("no upstream branch") {
+            eprintln!("✗ No upstream branch configured");
+            eprintln!(
+                "  Try: git push -u {} {}",
+                remote_name,
+                get_current_branch().unwrap_or_default()
+            );
         } else {
-            eprintln!("  Check your permissions or network connection.");
+            eprintln!("✗ Push failed: {}", e);
         }
         return Err(e);
     }
@@ -852,13 +954,24 @@ fn run_git_quiet(args: &[&str]) -> Result<()> {
     let output = StdCommand::new("git")
         .args(args)
         .output()
-        .with_context(|| format!("running git {}", args.join(" ")))?;
+        .with_context(|| {
+            format!(
+                "failed to execute git {} - is git installed?",
+                args.join(" ")
+            )
+        })?;
 
     if output.status.success() {
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git {} failed: {}", args.join(" "), stderr.trim());
+        let hint = suggest_hint_for_git_error(&stderr, args);
+        bail!(
+            "git {} failed:{}{}",
+            args.join(" "),
+            format_stderr(&stderr),
+            hint
+        );
     }
 }
 
@@ -866,14 +979,26 @@ fn run_git_silent(args: &[&str]) -> Result<()> {
     let output = StdCommand::new("git")
         .args(args)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .output()
-        .with_context(|| format!("running git {}", args.join(" ")))?;
+        .with_context(|| {
+            format!(
+                "failed to execute git {} - is git installed?",
+                args.join(" ")
+            )
+        })?;
 
     if output.status.success() {
         Ok(())
     } else {
-        bail!("git {} failed", args.join(" "));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let hint = suggest_hint_for_git_error(&stderr, args);
+        bail!(
+            "git {} failed:{}{}",
+            args.join(" "),
+            format_stderr(&stderr),
+            hint
+        );
     }
 }
 
@@ -968,4 +1093,87 @@ fn print_explanations() {
         "  commit  – make commits; `--all` stages everything, `--unstaged` stages only modified tracked files, `--push` runs `git push`, `--amend` rewrites the last commit, and `--no-verify` skips hooks."
     );
     println!("  sync    – fetch, pull, and push in one command with graceful error handling.");
+}
+
+fn format_stderr(stderr: &str) -> String {
+    let trimmed = stderr.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("\n  {}", trimmed)
+    }
+}
+
+fn suggest_hint_for_git_error(stderr: &str, args: &[&str]) -> String {
+    let stderr_lower = stderr.to_lowercase();
+    let cmd = args.first().copied().unwrap_or("");
+
+    if stderr_lower.contains("not a git repository") {
+        return format!("\n  hint: {}", NOT_IN_REPO_HINT);
+    }
+
+    if cmd == "commit" {
+        if stderr_lower.contains("nothing to commit") {
+            return format!("\n  hint: {}", NO_STAGED_HINT);
+        }
+        if stderr_lower.contains("no changes added to commit") {
+            return format!("\n  hint: {}", NO_STAGED_HINT);
+        }
+        if stderr_lower.contains("nothing added to commit") {
+            return format!("\n  hint: {}", NO_STAGED_HINT);
+        }
+    }
+
+    if cmd == "push" {
+        if stderr_lower.contains("no upstream branch") {
+            return "\n  hint: set upstream with 'git push -u origin <branch>' or use 'sgit push' from a tracked branch".to_string();
+        }
+        if stderr_lower.contains("rejected") {
+            return "\n  hint: remote has new commits - try 'sgit pull' first, then push again"
+                .to_string();
+        }
+        if stderr_lower.contains("could not resolve host") || stderr_lower.contains("network") {
+            return "\n  hint: check your network connection".to_string();
+        }
+    }
+
+    if cmd == "pull" {
+        if stderr_lower.contains("there is no tracking information") {
+            return "\n  hint: branch has no upstream - try 'git branch --set-upstream-to=origin/<branch>'".to_string();
+        }
+        if stderr_lower.contains("conflict") {
+            return "\n  hint: resolve merge conflicts, then commit the resolution".to_string();
+        }
+    }
+
+    if cmd == "checkout" || cmd == "switch" {
+        if stderr_lower.contains("would be overwritten") {
+            return "\n  hint: commit or stash your changes before switching branches".to_string();
+        }
+        if stderr_lower.contains("did not match") {
+            return "\n  hint: branch name may be misspelled - check 'sgit branch' for available branches".to_string();
+        }
+    }
+
+    if cmd == "branch" && stderr_lower.contains("already exists") {
+        return "\n  hint: branch name already in use, choose a different name".to_string();
+    }
+
+    if stderr_lower.contains("permission denied") {
+        return "\n  hint: check file permissions or run with appropriate privileges".to_string();
+    }
+
+    String::new()
+}
+
+fn check_in_repo() -> Result<()> {
+    StdCommand::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .context("failed to execute git - is git installed?")?
+        .success()
+        .then_some(())
+        .ok_or_else(|| anyhow::anyhow!("{}", NOT_IN_REPO_HINT))
 }
