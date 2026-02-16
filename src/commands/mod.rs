@@ -14,4 +14,4 @@ pub use reset::run_reset;
 pub use stage::stage_targets;
 pub use sync::{run_pull, run_push, run_sync};
 pub use unstage::restore_stage;
-pub use update::run_self_update;
+pub use update::{check_and_auto_update, run_self_update};

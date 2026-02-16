@@ -7,8 +7,8 @@ use anyhow::{bail, Result};
 use clap::Parser;
 use cli::{Cli, SgitCommand};
 use commands::{
-    create_branch, delete_branch, restore_stage, run_branch_interactive, run_clone, run_commit,
-    run_pull, run_push, run_reset, run_self_update, run_sync, stage_targets,
+    check_and_auto_update, create_branch, delete_branch, restore_stage, run_branch_interactive,
+    run_clone, run_commit, run_pull, run_push, run_reset, run_self_update, run_sync, stage_targets,
 };
 use git::{check_in_repo, run_git, run_git_silent};
 
@@ -22,6 +22,8 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    let _ = check_and_auto_update();
+
     let cli = Cli::parse();
 
     if cli.explain {
