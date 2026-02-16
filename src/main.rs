@@ -7,8 +7,8 @@ use anyhow::{bail, Result};
 use clap::Parser;
 use cli::{Cli, SgitCommand};
 use commands::{
-    create_branch, restore_stage, run_branch_interactive, run_commit, run_pull, run_push,
-    run_reset, run_sync, stage_targets,
+    create_branch, restore_stage, run_branch_interactive, run_clone, run_commit, run_pull,
+    run_push, run_reset, run_sync, stage_targets,
 };
 use git::{check_in_repo, run_git, run_git_silent};
 
@@ -34,7 +34,7 @@ fn run() -> Result<()> {
         None => bail!("'sgit' requires a subcommand; use --help to see the available list"),
     };
 
-    if !matches!(command, SgitCommand::Init) {
+    if !matches!(command, SgitCommand::Init | SgitCommand::Clone { .. }) {
         check_in_repo()?;
     }
 
@@ -106,6 +106,9 @@ fn run() -> Result<()> {
         } => {
             run_commit(message, all, staged, unstaged, push, amend, no_verify)?;
         }
+        SgitCommand::Clone { url, directory } => {
+            run_clone(&url, directory.as_deref())?;
+        }
     }
 
     Ok(())
@@ -130,4 +133,5 @@ fn print_explanations() {
         "  commit  – make commits; `--all` stages everything, `--unstaged` stages only modified tracked files, `--push` runs `git push`, `--amend` rewrites the last commit, and `--no-verify` skips hooks."
     );
     println!("  sync    – fetch, pull, and push in one command with graceful error handling.");
+    println!("  clone   – clone a repository and print a cd command to enter it.");
 }

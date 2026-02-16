@@ -89,4 +89,10 @@ pub enum SgitCommand {
         remote: Option<String>,
         branch: Option<String>,
     },
+    Clone {
+        #[arg(value_name = "URL")]
+        url: String,
+        #[arg(value_name = "DIR")]
+        directory: Option<String>,
+    },
 }
