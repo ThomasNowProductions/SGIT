@@ -8,7 +8,7 @@ use clap::Parser;
 use cli::{Cli, SgitCommand};
 use commands::{
     create_branch, delete_branch, restore_stage, run_branch_interactive, run_clone, run_commit,
-    run_pull, run_push, run_reset, run_sync, stage_targets,
+    run_pull, run_push, run_reset, run_self_update, run_sync, stage_targets,
 };
 use git::{check_in_repo, run_git, run_git_silent};
 
@@ -34,7 +34,10 @@ fn run() -> Result<()> {
         None => bail!("'sgit' requires a subcommand; use --help to see the available list"),
     };
 
-    if !matches!(command, SgitCommand::Init | SgitCommand::Clone { .. }) {
+    if !matches!(
+        command,
+        SgitCommand::Init | SgitCommand::Clone { .. } | SgitCommand::Update { .. }
+    ) {
         check_in_repo()?;
     }
 
@@ -111,6 +114,9 @@ fn run() -> Result<()> {
         SgitCommand::Clone { url, directory } => {
             run_clone(&url, directory.as_deref())?;
         }
+        SgitCommand::Update { target_version } => {
+            run_self_update(target_version.as_deref())?;
+        }
     }
 
     Ok(())
@@ -136,4 +142,5 @@ fn print_explanations() {
     );
     println!("  sync    – fetch, pull, and push in one command with graceful error handling.");
     println!("  clone   – clone a repository and print a cd command to enter it.");
+    println!("  update  – update sgit to the latest version from GitHub releases.");
 }

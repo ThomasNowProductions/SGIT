@@ -5,6 +5,7 @@ mod reset;
 mod stage;
 mod sync;
 mod unstage;
+mod update;
 
 pub use branch::{create_branch, delete_branch, run_branch_interactive};
 pub use clone::run_clone;
@@ -13,3 +14,4 @@ pub use reset::run_reset;
 pub use stage::stage_targets;
 pub use sync::{run_pull, run_push, run_sync};
 pub use unstage::restore_stage;
+pub use update::run_self_update;

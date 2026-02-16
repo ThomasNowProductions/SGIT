@@ -57,7 +57,7 @@ pub fn delete_branch_interactive() -> Result<()> {
         bail!("no branches available to delete (cannot delete current branch)");
     }
 
-    let display_branches: Vec<String> = deletable_branches.iter().map(|b| b.clone()).collect();
+    let display_branches: Vec<String> = deletable_branches.to_vec();
 
     let selection = Select::new()
         .with_prompt("Select a branch to delete")
