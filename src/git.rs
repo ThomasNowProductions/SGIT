@@ -3,8 +3,8 @@ use std::process::Command as StdCommand;
 use anyhow::{bail, Context, Result};
 
 pub const NOT_IN_REPO_HINT: &str =
-    "not in a git repository - run 'sgit init' or cd into a repo first";
-pub const NO_STAGED_HINT: &str = "nothing to commit - use 'sgit stage' to stage changes first";
+    "not in a git repository - run 'supgit init' or cd into a repo first";
+pub const NO_STAGED_HINT: &str = "nothing to commit - use 'supgit stage' to stage changes first";
 
 pub fn run_git(args: &[&str]) -> Result<()> {
     let output = StdCommand::new("git")
@@ -155,10 +155,10 @@ fn suggest_hint_for_git_error(stderr: &str, args: &[&str]) -> String {
 
     if cmd == "push" {
         if stderr_lower.contains("no upstream branch") {
-            return "\n  hint: set upstream with 'git push -u origin <branch>' or use 'sgit push' from a tracked branch".to_string();
+            return "\n  hint: set upstream with 'git push -u origin <branch>' or use 'supgit push' from a tracked branch".to_string();
         }
         if stderr_lower.contains("rejected") {
-            return "\n  hint: remote has new commits - try 'sgit pull' first, then push again"
+            return "\n  hint: remote has new commits - try 'supgit pull' first, then push again"
                 .to_string();
         }
         if stderr_lower.contains("could not resolve host") || stderr_lower.contains("network") {
@@ -180,7 +180,7 @@ fn suggest_hint_for_git_error(stderr: &str, args: &[&str]) -> String {
             return "\n  hint: commit or stash your changes before switching branches".to_string();
         }
         if stderr_lower.contains("did not match") {
-            return "\n  hint: branch name may be misspelled - check 'sgit branch' for available branches".to_string();
+            return "\n  hint: branch name may be misspelled - check 'supgit branch' for available branches".to_string();
         }
     }
 

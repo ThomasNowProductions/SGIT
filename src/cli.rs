@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
-    name = "sgit",
+    name = "supgit",
     about = "Blazing fast wrapper for Git with simplified workflows",
     version,
     propagate_version = true
@@ -12,11 +12,11 @@ pub struct Cli {
     pub explain: bool,
 
     #[command(subcommand)]
-    pub command: Option<SgitCommand>,
+    pub command: Option<SupgitCommand>,
 }
 
 #[derive(Subcommand)]
-pub enum SgitCommand {
+pub enum SupgitCommand {
     Init,
     Stage {
         #[arg(value_name = "PATH")]

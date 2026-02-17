@@ -3,9 +3,9 @@ use std::env;
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const INSTALL_URL: &str = "https://sgit.vercel.app/install.sh";
+const INSTALL_URL: &str = "https://supgit.vercel.app/install.sh";
 const GITHUB_API_URL: &str =
-    "https://api.github.com/repos/ThomasNowProductions/SGIT/releases/latest";
+    "https://api.github.com/repos/ThomasNowProductions/SupGIT/releases/latest";
 const UPDATE_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 
 fn get_current_version() -> &'static str {
@@ -13,7 +13,7 @@ fn get_current_version() -> &'static str {
 }
 
 fn get_last_check_file() -> Option<std::path::PathBuf> {
-    dirs::cache_dir().map(|p| p.join("sgit").join("last_update_check"))
+    dirs::cache_dir().map(|p| p.join("supgit").join("last_update_check"))
 }
 
 fn get_time_since_last_check() -> Option<Duration> {
@@ -93,7 +93,7 @@ fn version_is_newer(latest: &str, current: &str) -> bool {
 }
 
 pub fn check_and_auto_update() -> Result<()> {
-    if env::var("SGIT_SKIP_UPDATE_CHECK").is_ok() {
+    if env::var("SupGIT_SKIP_UPDATE_CHECK").is_ok() {
         return Ok(());
     }
 
@@ -115,11 +115,11 @@ pub fn check_and_auto_update() -> Result<()> {
         return Ok(());
     }
 
-    println!("Updating sgit from v{} to v{}...", current, latest);
+    println!("Updating supgit from v{} to v{}...", current, latest);
 
     let mut sh = Command::new("sh");
     sh.arg("-c")
-        .arg("curl -fsSL https://sgit.vercel.app/install.sh | sh");
+        .arg("curl -fsSL https://supgit.vercel.app/install.sh | sh");
 
     let status = sh.status().context("Failed to run installer")?;
 
@@ -148,7 +148,7 @@ pub fn run_self_update(target_version: Option<&str>) -> Result<()> {
 
     let mut sh = Command::new("sh");
     sh.arg("-c")
-        .arg("curl -fsSL https://sgit.vercel.app/install.sh | sh");
+        .arg("curl -fsSL https://supgit.vercel.app/install.sh | sh");
 
     if let Some(v) = target_version {
         let version = if v.starts_with('v') {
@@ -156,7 +156,7 @@ pub fn run_self_update(target_version: Option<&str>) -> Result<()> {
         } else {
             format!("v{}", v)
         };
-        sh.env("SGIT_VERSION", version);
+        sh.env("SupGIT_VERSION", version);
     }
 
     let status = sh.status().context("Failed to run installer")?;

@@ -95,8 +95,8 @@ pub fn run_sync(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
             eprintln!("✗ Pull failed due to merge conflicts");
             eprintln!("  Resolve conflicts manually:");
             eprintln!("    1. Edit conflicting files (marked with <<<<<<<)");
-            eprintln!("    2. Run 'sgit stage .' to stage resolved files");
-            eprintln!("    3. Run 'sgit commit' to complete the merge");
+            eprintln!("    2. Run 'supgit stage .' to stage resolved files");
+            eprintln!("    3. Run 'supgit commit' to complete the merge");
             return Err(e);
         }
         if err_str.contains("no tracking information") {
@@ -135,7 +135,7 @@ pub fn run_sync(remote: Option<&str>, branch: Option<&str>) -> Result<()> {
         let err_str = e.to_string();
         if err_str.contains("rejected") {
             eprintln!("✗ Push rejected: remote has new commits");
-            eprintln!("  Run 'sgit pull' first to integrate remote changes.");
+            eprintln!("  Run 'supgit pull' first to integrate remote changes.");
         } else if err_str.contains("no upstream branch") {
             eprintln!("✗ No upstream branch configured");
             eprintln!(

@@ -5,7 +5,7 @@ mod status;
 
 use anyhow::{bail, Result};
 use clap::Parser;
-use cli::{Cli, SgitCommand};
+use cli::{Cli, SupgitCommand};
 use commands::{
     check_and_auto_update, create_branch, delete_branch, restore_stage, run_branch_interactive,
     run_clone, run_commit, run_pull, run_push, run_reset, run_self_update, run_sync, stage_targets,
@@ -33,42 +33,42 @@ fn run() -> Result<()> {
 
     let command = match cli.command {
         Some(command) => command,
-        None => bail!("'sgit' requires a subcommand; use --help to see the available list"),
+        None => bail!("'supgit' requires a subcommand; use --help to see the available list"),
     };
 
     if !matches!(
         command,
-        SgitCommand::Init | SgitCommand::Clone { .. } | SgitCommand::Update { .. }
+        SupgitCommand::Init | SupgitCommand::Clone { .. } | SupgitCommand::Update { .. }
     ) {
         check_in_repo()?;
     }
 
     match command {
-        SgitCommand::Init => {
+        SupgitCommand::Init => {
             run_git_silent(&["init"])?;
             println!("✓ Initialized Git repository");
         }
-        SgitCommand::Stage {
+        SupgitCommand::Stage {
             targets,
             all,
             tracked,
         } => stage_targets(&targets, all, tracked)?,
-        SgitCommand::Unstage { targets, all } => restore_stage(&targets, all)?,
-        SgitCommand::Status { short } => {
+        SupgitCommand::Unstage { targets, all } => restore_stage(&targets, all)?,
+        SupgitCommand::Status { short } => {
             if short {
                 run_git(&["status", "-sb"])?;
             } else {
                 run_git(&["status"])?;
             }
         }
-        SgitCommand::Log { short } => {
+        SupgitCommand::Log { short } => {
             if short {
                 run_git(&["log", "--oneline", "--decorate", "-n", "20"])?;
             } else {
                 run_git(&["log", "--decorate", "-n", "40"])?;
             }
         }
-        SgitCommand::Diff { path, staged } => {
+        SupgitCommand::Diff { path, staged } => {
             if staged {
                 run_git(&["diff", "--staged"])?;
             } else if let Some(path) = path {
@@ -77,14 +77,14 @@ fn run() -> Result<()> {
                 run_git(&["diff"])?;
             }
         }
-        SgitCommand::Reset {
+        SupgitCommand::Reset {
             all,
             staged,
             unstaged,
             tracked,
             untracked,
         } => run_reset(all, staged, unstaged, tracked, untracked)?,
-        SgitCommand::Branch { create, delete } => {
+        SupgitCommand::Branch { create, delete } => {
             if let Some(branch_name) = create {
                 create_branch(&branch_name)?;
             } else if let Some(branch_name) = delete {
@@ -93,16 +93,16 @@ fn run() -> Result<()> {
                 run_branch_interactive()?;
             }
         }
-        SgitCommand::Push { remote, branch } => {
+        SupgitCommand::Push { remote, branch } => {
             run_push(remote, branch)?;
         }
-        SgitCommand::Pull { remote, branch } => {
+        SupgitCommand::Pull { remote, branch } => {
             run_pull(remote, branch)?;
         }
-        SgitCommand::Sync { remote, branch } => {
+        SupgitCommand::Sync { remote, branch } => {
             run_sync(remote.as_deref(), branch.as_deref())?;
         }
-        SgitCommand::Commit {
+        SupgitCommand::Commit {
             message,
             all,
             staged,
@@ -113,10 +113,10 @@ fn run() -> Result<()> {
         } => {
             run_commit(message, all, staged, unstaged, push, amend, no_verify)?;
         }
-        SgitCommand::Clone { url, directory } => {
+        SupgitCommand::Clone { url, directory } => {
             run_clone(&url, directory.as_deref())?;
         }
-        SgitCommand::Update { target_version } => {
+        SupgitCommand::Update { target_version } => {
             run_self_update(target_version.as_deref())?;
         }
     }
@@ -125,7 +125,7 @@ fn run() -> Result<()> {
 }
 
 fn print_explanations() {
-    println!("SGIT simplifies Git for beginners by wrapping each major workflow:");
+    println!("SupGIT simplifies Git for beginners by wrapping each major workflow:");
     println!();
     println!("  init    – initialize a Git repository (runs `git init`).");
     println!("  stage   – add files to the staging area (interactive, or use --all/--tracked).");
@@ -144,5 +144,5 @@ fn print_explanations() {
     );
     println!("  sync    – fetch, pull, and push in one command with graceful error handling.");
     println!("  clone   – clone a repository and print a cd command to enter it.");
-    println!("  update  – update sgit to the latest version from GitHub releases.");
+    println!("  update  – update supgit to the latest version from GitHub releases.");
 }

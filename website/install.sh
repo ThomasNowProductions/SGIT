@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-REPO="ThomasNowProductions/SGIT"
-INSTALL_DIR="${SGIT_INSTALL_DIR:-${HOME}/.local/bin}"
-VERSION="${SGIT_VERSION:-latest}"
+REPO="ThomasNowProductions/SupGIT"
+INSTALL_DIR="${SupGIT_INSTALL_DIR:-${HOME}/.local/bin}"
+VERSION="${SupGIT_VERSION:-latest}"
 
 check_deps() {
     for dep in curl; do
@@ -61,7 +61,7 @@ check_deps
 
 if ! check_writable "$INSTALL_DIR"; then
     printf "ERROR: Cannot write to %s\n" "$INSTALL_DIR"
-    printf "       Try: SGIT_INSTALL_DIR=/path/to/writable/dir ./install.sh\n"
+    printf "       Try: SupGIT_INSTALL_DIR=/path/to/writable/dir ./install.sh\n"
     exit 1
 fi
 
@@ -76,7 +76,7 @@ if [ "$VERSION" = "latest" ]; then
     RELEASE_INFO="$(curl -sSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null)" || RELEASE_INFO=""
     if [ -z "$RELEASE_INFO" ] || printf '%s' "$RELEASE_INFO" | grep -q 'API rate limit exceeded'; then
         printf "\r\033[KERROR: Failed to fetch release info from GitHub\n"
-        printf "       (Rate limited? Try: SGIT_VERSION=v0.1.0 ./install.sh)\n"
+        printf "       (Rate limited? Try: SupGIT_VERSION=v0.1.0 ./install.sh)\n"
         printf "       See all releases: https://github.com/$REPO/releases\n"
         exit 1
     fi
@@ -88,14 +88,14 @@ if [ "$VERSION" = "latest" ]; then
 fi
 
 if [ "$(uname -s)" = "MINGW"* ] || [ "$(uname -s)" = "MSYS"* ] || [ "$(uname -s)" = "CYGWIN"* ]; then
-    ARCHIVE="sgit-${PLATFORM}.zip"
+    ARCHIVE="supgit-${PLATFORM}.zip"
 else
-    ARCHIVE="sgit-${PLATFORM}.tar.gz"
+    ARCHIVE="supgit-${PLATFORM}.tar.gz"
 fi
 
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/$ARCHIVE"
 
-status "Downloading SGIT $VERSION for $PLATFORM..."
+status "Downloading SupGIT $VERSION for $PLATFORM..."
 TEMP_DIR="$(mktemp -d)"
 cleanup() {
     rm -rf "$TEMP_DIR" 2>/dev/null
@@ -115,25 +115,25 @@ else
     tar -xzf "$ARCHIVE"
 fi
 
-BINARY="$(find . -maxdepth 2 -name "sgit" -o -name "sgit.exe" 2>/dev/null | head -1)"
+BINARY="$(find . -maxdepth 2 -name "supgit" -o -name "supgit.exe" 2>/dev/null | head -1)"
 if [ -z "$BINARY" ]; then
     printf "\r\033[KERROR: Binary not found in archive\n"
     exit 1
 fi
 
-status "Installing SGIT to $INSTALL_DIR..."
+status "Installing SupGIT to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-cp "$BINARY" "$INSTALL_DIR/sgit"
-chmod 755 "$INSTALL_DIR/sgit"
+cp "$BINARY" "$INSTALL_DIR/supgit"
+chmod 755 "$INSTALL_DIR/supgit"
 
 status "Verifying installation..."
-if ! "$INSTALL_DIR/sgit" --version >/dev/null 2>&1; then
+if ! "$INSTALL_DIR/supgit" --version >/dev/null 2>&1; then
     printf "\r\033[KERROR: Installed binary failed to run\n"
     printf "       This may indicate an architecture mismatch\n"
     exit 1
 fi
 
-printf "\r\033[K🎉 SGIT $VERSION is installed 🎉\n"
+printf "\r\033[K🎉 SupGIT $VERSION is installed 🎉\n"
 
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;

@@ -1,8 +1,8 @@
-# AGENTS.md - SGIT Project Guidelines
+# AGENTS.md - SupGIT Project Guidelines
 
 ## Project Overview
 
-SGIT (Simple Git) is a Rust CLI wrapper around Git that provides simplified workflows for common Git operations. It is a single-binary project with a modular code structure.
+SupGIT (Simple Git) is a Rust CLI wrapper around Git that provides simplified workflows for common Git operations. It is a single-binary project with a modular code structure.
 
 ## Build/Lint/Test Commands
 
@@ -80,10 +80,10 @@ use crate::status::get_repo_root;
 ### Naming Conventions
 
 - **Functions**: snake_case (`run_git`, `get_staged_files`, `stage_targets`)
-- **Structs/Enums**: PascalCase (`Cli`, `SgitCommand`)
+- **Structs/Enums**: PascalCase (`Cli`, `SupgitCommand`)
 - **Constants**: SCREAMING_SNAKE_CASE (`NOT_IN_REPO_HINT`, `NO_STAGED_HINT`)
 - **Variables**: snake_case
-- **Enum variants**: PascalCase (`SgitCommand::Init`, `SgitCommand::Stage`)
+- **Enum variants**: PascalCase (`SupgitCommand::Init`, `SupgitCommand::Stage`)
 
 ### Error Handling
 
@@ -112,13 +112,13 @@ pub fn check_in_repo() -> Result<()> {
 
 ```rust
 #[derive(Parser)]
-#[command(name = "sgit", about = "Description", version)]
+#[command(name = "supgit", about = "Description", version)]
 pub struct Cli {
     #[arg(long, global = true)]
     pub explain: bool,
 
     #[command(subcommand)]
-    pub command: Option<SgitCommand>,
+    pub command: Option<SupgitCommand>,
 }
 ```
 
@@ -159,7 +159,7 @@ let output = StdCommand::new("git")
 
 - Modular architecture under `src/`:
   - `main.rs` - Entry point, command dispatch
-  - `cli.rs` - CLI definitions (Cli struct, SgitCommand enum)
+  - `cli.rs` - CLI definitions (Cli struct, SupgitCommand enum)
   - `git.rs` - Git command execution helpers (`run_git`, `run_git_silent`, etc.)
   - `status.rs` - Repository status utilities (`get_staged_files`, `get_branches`, etc.)
   - `commands/` - Individual command implementations
@@ -170,7 +170,7 @@ let output = StdCommand::new("git")
 
 ## Adding New Commands
 
-1. Add a new variant to `SgitCommand` enum in `src/cli.rs` with doc comment
+1. Add a new variant to `SupgitCommand` enum in `src/cli.rs` with doc comment
 2. Add any required arguments as fields with `#[arg]` attributes
 3. Create a new file in `src/commands/` for the implementation
 4. Export the function from `src/commands/mod.rs`

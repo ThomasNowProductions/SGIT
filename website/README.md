@@ -1,4 +1,4 @@
-# SGIT Website
+# SupGIT Website
 
 Static site (plain HTML/CSS).
 
