@@ -12,6 +12,32 @@ use commands::{
     run_sync, run_unalias, stage_targets,
 };
 use git::{check_in_repo, run_git, run_git_silent};
+use strsim::jaro_winkler;
+
+const COMMANDS: &[&str] = &[
+    "init", "stage", "unstage", "status", "commit", "log", "diff", "reset", "branch", "push",
+    "pull", "sync", "clone", "update", "alias", "unalias",
+];
+
+fn find_closest_command(input: &str) -> Option<&'static str> {
+    COMMANDS
+        .iter()
+        .map(|&cmd| (cmd, jaro_winkler(input, cmd)))
+        .filter(|(_, score)| *score > 0.7)
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .map(|(cmd, _)| cmd)
+}
+
+fn extract_unrecognized_subcommand(err_str: &str) -> Option<&str> {
+    if err_str.contains("unrecognized subcommand") {
+        let start = err_str.find("'")?;
+        let rest = &err_str[start + 1..];
+        let end = rest.find("'")?;
+        Some(&rest[..end])
+    } else {
+        None
+    }
+}
 
 fn main() {
     if let Err(err) = run() {
@@ -25,7 +51,28 @@ fn main() {
 fn run() -> Result<()> {
     let _ = check_and_auto_update();
 
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            let err_string = err.to_string();
+            if let Some(unrecognized) = extract_unrecognized_subcommand(&err_string)
+                && let Some(closest) = find_closest_command(unrecognized)
+            {
+                eprintln!("error: unrecognized subcommand '{}'", unrecognized);
+                eprintln!("tip: running '{}' instead...", closest);
+                let args = std::env::args().collect::<Vec<_>>();
+                let mut new_args = vec![args[0].clone(), closest.to_string()];
+                if let Some(pos) = args.iter().position(|a| a == unrecognized) {
+                    new_args.extend(args[pos + 1..].iter().cloned());
+                }
+                let cli = Cli::parse_from(&new_args);
+                if let Some(command) = cli.command {
+                    return execute_command(command);
+                }
+            }
+            err.exit();
+        }
+    };
 
     if cli.explain {
         print_explanations();
@@ -37,6 +84,10 @@ fn run() -> Result<()> {
         None => bail!("'supgit' requires a subcommand; use --help to see the available list"),
     };
 
+    execute_command(command)
+}
+
+fn execute_command(command: SupgitCommand) -> Result<()> {
     if !matches!(
         command,
         SupgitCommand::Init
