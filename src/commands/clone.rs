@@ -1,7 +1,7 @@
 use std::env;
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
 use crate::git::run_git_silent;
 
@@ -19,10 +19,10 @@ pub fn run_clone(url: &str, directory: Option<&str>) -> Result<()> {
 
     let repo_dir = determine_repo_dir(url, target_dir.as_deref())?;
 
-    println!("✓ Clone complete");
-    println!("→ Changing directory to {}...", repo_dir.display());
+    env::set_current_dir(&repo_dir)
+        .with_context(|| format!("failed to change directory to {}", repo_dir.display()))?;
 
-    print_cd_script(&repo_dir)?;
+    println!("✓ Clone complete");
 
     Ok(())
 }
@@ -69,26 +69,4 @@ fn extract_repo_name(url: &str) -> Result<String> {
         Some(name.trim_end_matches(".git").to_string())
     })
     .ok_or_else(|| anyhow::anyhow!("could not determine repository name from URL"))
-}
-
-fn print_cd_script(repo_dir: &Path) -> Result<()> {
-    let cwd = env::current_dir().context("failed to get current directory")?;
-
-    if repo_dir.exists() && repo_dir.starts_with(&cwd) {
-        let relative = repo_dir.strip_prefix(&cwd).unwrap_or(repo_dir);
-        println!();
-        println!("To change into the cloned repository, run:");
-        println!("  cd {}", relative.display());
-    } else if repo_dir.exists() {
-        println!();
-        println!("To change into the cloned repository, run:");
-        println!("  cd {}", repo_dir.display());
-    } else {
-        bail!(
-            "cloned repository directory not found at {}",
-            repo_dir.display()
-        );
-    }
-
-    Ok(())
 }
